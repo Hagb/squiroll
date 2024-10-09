@@ -131,11 +131,19 @@ int WSAAPI my_WSASendTo(SOCKET s, LPWSABUF lpBuffers, DWORD dwBufferCount, LPDWO
     return WSASendTo_log(s, lpBuffers, dwBufferCount, lpNumberOfBytesSent, dwFlags, lpTo, iTolen, lpOverlapped, lpCompletionRoutine);
 }
 
+static WSABUF PUNCH_RESPONSE_BUF = {
+    .len = sizeof(PUNCH_RESPONSE_PACKET),
+    .buf = (CHAR*)&PUNCH_RESPONSE_PACKET
+};
+
 int WSAAPI my_WSARecvFrom(SOCKET s, LPWSABUF lpBuffers, DWORD dwBufferCount, LPDWORD lpNumberOfBytesRecvd, LPDWORD lpFlags, sockaddr* lpFrom, LPINT lpFromLen, LPWSAOVERLAPPED lpOverlapped, LPWSAOVERLAPPED_COMPLETION_ROUTINE lpCompletionRoutine) {
+    // https://github.com/boostorg/asio/blob/7041bc96db2574e2cb9aea614217cbc6dd0ea863/include/boost/asio/detail/impl/win_iocp_socket_service_base.ipp#L460
+
     int ret = WSARecvFrom_log(s, lpBuffers, dwBufferCount, lpNumberOfBytesRecvd, lpFlags, lpFrom, lpFromLen, lpOverlapped, lpCompletionRoutine);
 
     PacketLayout* packet = (PacketLayout*)lpBuffers[0].buf;
 
+    // to be fixed. the current version is not reliable, because AoCF makes use of lpOverlapped.
     switch (packet->type) {
         default:
             break;

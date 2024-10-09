@@ -837,6 +837,7 @@ int WSAAPI WSASendTo_log(
         if (error != WSA_IO_PENDING) {
             log_printf("SENDTO: FAIL %u\n", error);
         }
+        WSASetLastError(error);
     }
     return ret;
 }
@@ -902,6 +903,9 @@ int WSAAPI WSARecvFrom_log(
         if (error != WSA_IO_PENDING) {
             log_printf("RECVFROM: FAIL %u\n", error);
         }
+        //else
+        //    log_printf("RecvFrom with WSA_IO_PENDING! lpOverlapped %s NULL\n", lpOverlapped ? "!=" : "==");
+        WSASetLastError(error);
     }
     return ret;
 }
