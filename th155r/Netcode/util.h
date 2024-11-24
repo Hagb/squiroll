@@ -3,12 +3,22 @@
 #ifndef UTIL_H
 #define UTIL_H 1
 
+#define SYNC_USE_CHRONO 0
+#define SYNC_USE_QPC 1
+
+#define SYNC_TYPE SYNC_USE_CHRONO
+
 #include <stdlib.h>
 #include <stdint.h>
 #include <type_traits>
 #include <limits.h>
 #include <limits>
 #include <atomic>
+#include <bit>
+
+#if SYNC_TYPE == SYNC_USE_CHRONO
+#include <chrono>
+#endif
 
 #include <winsock2.h>
 #include <windows.h>
@@ -56,6 +66,11 @@
 #endif
 
 #define MACRO_VOID(...)
+
+template<class L, int = (L{}(), 0) >
+static inline constexpr bool is_constexpr(L) { return true; }
+static inline constexpr bool is_constexpr(...) { return false; }
+#define IS_CONSTEXPR(...) is_constexpr([]{ __VA_ARGS__; })
 
 #if __INTELLISENSE__
 #define requires(...) MACRO_EVAL(MACRO_VOID(__VA_ARGS__))
@@ -215,6 +230,32 @@ static inline const uintptr_t dummy_ip = 0;
 #define return_address (*stack_return_offset)
 #endif
 
+#if CLANG_COMPAT
+#define nounroll _Pragma("clang loop unroll(disable)")
+#elif GCC_COMPAT
+#define nounroll _Pragma("GCC unroll 0")
+#else
+#define nounroll
+#endif
+
+#if CLANG_COMPAT
+#define PUSH_WARNINGS() _Pragma("clang diagnostic push")
+#define POP_WARNINGS() _Pragma("clang diagnostic pop")
+#define IGNORE_DESIGNATED_INITIALIZER_WARNING() _Pragma("clang diagnostic ignored \"-Wc99-designator\"")
+#elif GCC_COMPAT
+#define PUSH_WARNINGS() _Pragma("GCC diagnostic push")
+#define POP_WARNINGS() _Pragma("GCC diagnostic pop")
+#define IGNORE_DESIGNATED_INITIALIZER_WARNING()
+#elif MSVC_COMPAT
+#define PUSH_WARNINGS() _Pragma("warning(push)")
+#define POP_WARNINGS() _Pragma("warning(pop)")
+#define IGNORE_DESIGNATED_INITIALIZER_WARNING()
+#else
+#define PUSH_WARNINGS()
+#define POP_WARNINGS()
+#define IGNORE_DESIGNATED_INITIALIZER_WARNING()
+#endif
+
 
 #define countof(array_type) \
 (sizeof(array_type) / sizeof(array_type[0]))
@@ -235,6 +276,48 @@ using UBitIntType = std::conditional_t<bit_count <= 8, uint8_t,
 					std::conditional_t<bit_count <= 32, uint32_t,
 					std::conditional_t<bit_count <= 64, uint64_t,
 					void>>>>;
+
+#if !__has_builtin(__builtin_bswap16)
+static inline uint16_t __builtin_bswap16(uint16_t value) {
+    return value >> 8 | value << 8;
+}
+#endif
+
+#if !__has_builtin(__builtin_bswap32)
+static inline uint32_t __builtin_bswap32(uint32_t value) {
+    return value << 24 | value >> 24 | (value & 0x0000FF00u) << 8 | (value & 0x00FF0000u) >> 8;
+}
+#endif
+
+#if !__has_builtin(__builtin_bswap64)
+static inline uint64_t __builtin_bswap64(uint64_t value) {
+    value = (value & 0x00000000FFFFFFFFull) << 32 | (value & 0xFFFFFFFF00000000ull) >> 32;
+    value = (value & 0x0000FFFF0000FFFFull) << 16 | (value & 0xFFFF0000FFFF0000ull) >> 16;
+    return  (value & 0x00FF00FF00FF00FFull) << 8  | (value & 0xFF00FF00FF00FF00ull) >> 8;
+}
+#endif
+
+template<typename T>
+static inline T bswap(const T& value) {
+    if constexpr (sizeof(T) == sizeof(uint8_t)) {
+        return value;
+    }
+    else if constexpr (sizeof(T) == sizeof(uint16_t)) {
+        uint16_t temp = __builtin_bswap16(*(uint16_t*)&value);
+        return *(T*)&temp;
+    }
+    else if constexpr (sizeof(T) == sizeof(uint32_t)) {
+        uint32_t temp = __builtin_bswap32(*(uint32_t*)&value);
+        return *(T*)&temp;
+    }
+    else if constexpr (sizeof(T) == sizeof(uint64_t)) {
+        uint64_t temp = __builtin_bswap64(*(uint64_t*)&value);
+        return *(T*)&temp;
+    }
+    else {
+        static_assert(false, "Invalid argument type for bswap");
+    }
+}
 
 #if !__has_builtin(__builtin_add_overflow)
 #define __builtin_add_overflow __builtin_add_overflow_impl
@@ -435,5 +518,108 @@ struct SpinLock {
         this->flag.store(false, std::memory_order_release);
     }
 };
+
+template <typename T>
+static inline size_t uint8_to_strbuf(uint8_t value, T* text_buffer) {
+    size_t digit_offset;
+    switch (value) {
+        case 0 ... 9:
+            digit_offset = 0;
+            break;
+        case 10 ... 99:
+            digit_offset = 1;
+            break;
+        default:
+            digit_offset = 2;
+            break;
+    }
+    size_t ret = digit_offset + 1;
+    do {
+        uint8_t digit = value % 10;
+        value /= 10;
+        text_buffer[digit_offset] = ((T)'0') + digit;
+    } while (digit_offset--);
+    return ret;
+}
+
+template <typename T>
+static inline size_t uint16_to_strbuf(uint16_t value, T* text_buffer) {
+    size_t digit_offset;
+    switch (value) {
+        case 0 ... 9:
+            digit_offset = 0;
+            break;
+        case 10 ... 99:
+            digit_offset = 1;
+            break;
+        case 100 ... 999:
+            digit_offset = 2;
+            break;
+        case 1000 ... 9999:
+            digit_offset = 3;
+            break;
+        default:
+            digit_offset = 4;
+            break;
+    }
+    size_t ret = digit_offset + 1;
+    do {
+        uint16_t digit = value % 10;
+        value /= 10;
+        text_buffer[digit_offset] = ((T)'0') + digit;
+    } while (digit_offset--);
+    return ret;
+}
+
+template <typename T>
+static inline size_t uint16_to_hex_strbuf(uint16_t value, T* text_buffer) {
+    uint32_t temp = value;
+    size_t digit_offset = temp ? (15 - std::countl_zero(value)) >> 2 : 0;
+    size_t ret = digit_offset + 1;
+    do {
+        uint16_t digit = temp & 0xF;
+        temp >>= 2;
+        text_buffer[digit_offset] = (digit < 10 ? (T)'0' : (T)('A' - 10)) + digit;
+    } while (digit_offset--);
+    return ret;
+}
+
+struct LARGE_INTEGERX {
+    LARGE_INTEGER value;
+
+    inline LARGE_INTEGERX& operator=(const int64_t& value) {
+        this->value.QuadPart = value;
+        return *this;
+    }
+
+    inline LARGE_INTEGER* operator&() {
+        return &this->value;
+    }
+
+    inline operator int64_t() const {
+        return this->value.QuadPart;
+    }
+};
+
+#if SYNC_TYPE == SYNC_USE_QPC
+extern LARGE_INTEGERX qpc_ms_frequency;
+#endif
+
+static inline int64_t current_sync_time() {
+#if SYNC_TYPE == SYNC_USE_CHRONO
+    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+#elif SYNC_TYPE == SYNC_USE_QPC
+    LARGE_INTEGERX now;
+    QueryPerformanceCounter(&now);
+    return now / qpc_ms_frequency;
+#endif
+}
+
+static inline void sync_to_milliseconds(int64_t minimum_time, int64_t multiple) {
+    int64_t initial_time = current_sync_time();
+    int64_t current_time;
+    do current_time = current_sync_time();
+    while (current_time - initial_time >= minimum_time && current_time % multiple);
+}
 
 #endif

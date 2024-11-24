@@ -63,6 +63,8 @@ for( local i = 0; i < 5; i = ++i )
 	this.server_port_v.push(c);
 }
 
+this.display_ip_on_wait <- false;
+
 this.server_port_h <- this.Cursor(1, 5, ::input_all);
 this.cursor_upnp <- this.Cursor(1, 2, ::input_all);
 this.cursor_allow_watch <- this.Cursor(1, 2, ::input_all);
@@ -236,7 +238,6 @@ function Update()
 	}
 
 	this.LobbyUpdate();
-
 	if (this.update)
 	{
 		this.update();
@@ -255,7 +256,7 @@ function UpdateMain()
 
 		switch(this.cursor_item.val)
 		{
-		case 0:
+		case 0://wait in lobby
 			if (::LOBBY.GetNetworkState() == 2)
 			{
 				::LOBBY.SetExternalPort(::config.network.hosting_port);
@@ -269,13 +270,15 @@ function UpdateMain()
 				this.lobby_user_state = ::LOBBY.WAIT_INCOMMING;
 				::network.use_lobby = true;
 				::network.StartupServer(::config.network.hosting_port, 0);
+				::lobby.inc_user_count();
 				this.update = this.UpdateMatch;
+				this.display_ip_on_wait = false;
 				::Dialog(-1, this.item_table.wait_incomming[0], null, this.dialog_wait.InitializeWithUPnP);
 			}
 
 			break;
 
-		case 1:
+		case 1://search in lobby
 			if (::LOBBY.GetNetworkState() == 2)
 			{
 				::LOBBY.SetExternalPort(::config.network.hosting_port);
@@ -283,33 +286,36 @@ function UpdateMain()
 				::LOBBY.SetLobbyUserState(::LOBBY.MATCHING);
 				this.lobby_user_state = ::LOBBY.MATCHING;
 				this.update = this.UpdateMatch;
+				this.display_ip_on_wait = false;
 				::Dialog(-1, this.item_table.find[0], null, this.dialog_wait.Initialize);
 			}
 
 			break;
 
-		case 2:
+		case 2://select lobby
 			this.update = this.UpdateSelectLobby;
 			break;
 
-		case 4:
+		case 4://wait incomming
 			::network.use_lobby = false;
 			::network.StartupServer(::config.network.hosting_port, 1);
 			this.update = this.UpdateWaitServer;
+			::punch.reset_ip();
+			this.display_ip_on_wait = true;
 			::Dialog(-1, this.item_table.wait_incomming[0], null, this.dialog_wait.InitializeWithUPnP);
 			break;
 
-		case 5:
+		case 5://connecting to opponent
 			this.target_addr_h.val = 0;
 			::Dialog(-1, this.item_table.input_address[0], null, this.dialog_address.Initialize);
 			break;
 
-		case 6:
+		case 6://watch
 			this.target_addr_h.val = 0;
 			::Dialog(-1, this.item_table.input_address[0], null, this.dialog_address.Initialize);
 			break;
 
-		case 8:
+		case 8://player name
 			::Dialog(2, ::menu.common.GetMessageText("input_name"), function ( ret )
 			{
 				if (ret)
@@ -320,21 +326,21 @@ function UpdateMain()
 			}, ::config.network.player_name);
 			break;
 
-		case 9:
+		case 9://port number
 			this.SetHostingPortToCursor(::config.network.hosting_port);
 			this.server_port_h.val = 0;
 			::Dialog(-1, this.item_table.input_port[0], null, this.dialog_port.Initialize);
 			break;
 
-		case 10:
+		case 10://use upnp
 			this.update = this.UpdateUPnP;
 			break;
 
-		case 11:
+		case 11://allow watch
 			this.update = this.UpdateAllowWatch;
 			break;
 
-		case 13:
+		case 13://exit
 			::loop.End();
 			break;
 		}
@@ -436,6 +442,9 @@ function UpdateWaitServer()
 		::network.Terminate();
 		this.update = this.UpdateMain;
 		::loop.End();
+	}
+	if (::input_all.b2 == 1) {
+		::punch.copy_ip_to_clipboard();
 	}
 }
 
@@ -548,6 +557,9 @@ function UpdateMatch()
 
 	if (::input_all.b1 == 1)
 	{
+		if (this.cursor_item.val == 0) {
+			::lobby.dec_user_count();
+		}
 		::LOBBY.SetLobbyUserState(::LOBBY.NO_OPERATION);
 		::network.Terminate();
 		::loop.End();
@@ -561,14 +573,14 @@ function UpdateMatch()
 		{
 			if (::UPnP.GetAsyncState() == 2)
 			{
-				if (::UPnP.GetExternalIP() != "")
-				{
+				//if (::UPnP.GetExternalIP() != "")
+				//{
+					//::LOBBY.SetLobbyUserState(::LOBBY.WAIT_INCOMMING);
+				//}
+				//else
+				//{
 					::LOBBY.SetLobbyUserState(::LOBBY.WAIT_INCOMMING);
-				}
-				else
-				{
-					::LOBBY.SetLobbyUserState(::LOBBY.WAIT_INCOMMING);
-				}
+				//}
 			}
 		}
 	}
@@ -577,6 +589,7 @@ function UpdateMatch()
 	{
 		if (this.timeout++ > 360)
 		{
+			//::debug.print(this.retry_count+"\n");
 			if (this.retry_count++ > 5)
 			{
 				this.lobby_user_state = ::LOBBY.MATCHING;
@@ -611,6 +624,9 @@ function UpdateMatchWait()
 
 	if (::input_all.b1 == 1)
 	{
+		if (this.cursor_item.val == 0) {
+			::lobby.dec_user_count();
+		}
 		::LOBBY.SetLobbyUserState(::LOBBY.NO_OPERATION);
 		::network.Terminate();
 		::loop.End();
@@ -658,6 +674,7 @@ function LobbyUpdate()
 	else if (::LOBBY.GetNetworkState() != ::LOBBY.CLOSED)
 	{
 		::LOBBY.Close();
+		this.lobby_time_stamp -= 9000;
 	}
 }
 
